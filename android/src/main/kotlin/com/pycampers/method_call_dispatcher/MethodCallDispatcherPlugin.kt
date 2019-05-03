@@ -49,8 +49,8 @@ fun ignoreIllegalState(fn: () -> Unit) {
  * It is advisable to wrap any native code inside [fn],
  * because this will automatically send exceptions using error using [trySendThrowable] if required.
  */
-fun <T> trySend(result: Result, fn: (() -> T)?) {
-    val value: T?
+fun trySend(result: Result, fn: (() -> Any?)? = null) {
+    val value: Any?
     try {
         value = fn?.invoke()
     } catch (e: Throwable) {
