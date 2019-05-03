@@ -58,10 +58,9 @@ channel.setMethodCallHandler(MyPlugin())
 
 ## Errors
 
-Any errors that occur in native code tend instantly crash the app.
-Handing, and sending them back to flutter is a real challenge.
+Any errors that occur in native code tend to instantly crash the app.
+Sending them back to flutter can be a real PITA.
 
-No worries though!
 This module does everything in its power to prevent such mishaps.
 
 ```kotlin
