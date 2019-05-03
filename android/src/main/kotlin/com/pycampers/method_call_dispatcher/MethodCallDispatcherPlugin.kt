@@ -29,10 +29,11 @@ class DoAsync(val fn: () -> Unit) : AsyncTask<Void, Void, Void>() {
     }
 }
 
-/*
-Run `fn`, ignoring `IllegalStateException`.
-(workaround for https://github.com/flutter/flutter/issues/29092.)
-*/
+/**
+ * Runs [fn], ignoring [IllegalStateException], if encountered.
+ *
+ * Workaround for https://github.com/flutter/flutter/issues/29092.
+ */
 fun ignoreIllegalState(fn: () -> Unit) {
     try {
         fn()
@@ -41,16 +42,19 @@ fun ignoreIllegalState(fn: () -> Unit) {
     }
 }
 
-/*
-Try to send the value returned by `fn()` using `result`.
-Sends an error using `sendError` if required.
-*/
-fun <T> trySend(result: Result, fn: () -> T) {
-    val value: T
+/**
+ * Try to send the value returned by [fn] using [result] ([Result.success]),
+ * by encapsulating calls inside [ignoreIllegalState].
+ *
+ * It is advisable to wrap any native code inside [fn],
+ * because this will automatically send exceptions using error using [trySendThrowable] if required.
+ */
+fun <T> trySend(result: Result, fn: (() -> T)?) {
+    val value: T?
     try {
-        value = fn()
+        value = fn?.invoke()
     } catch (e: Throwable) {
-        sendError(e, result)
+        trySendThrowable(result, e)
         return
     }
 
@@ -63,33 +67,48 @@ fun <T> trySend(result: Result, fn: () -> T) {
     }
 }
 
-fun serializeStackTrace(e: Throwable): String {
+/**
+ * Serialize the stacktrace contained in [throwable] to a [String].
+ */
+fun serializeStackTrace(throwable: Throwable): String {
     val sw = StringWriter()
     val pw = PrintWriter(sw)
-    e.printStackTrace(pw)
+    throwable.printStackTrace(pw)
     return sw.toString()
 }
 
-/* Pipe the exception `throwable` back to flutter using `result.error()`. */
-fun sendError(throwable: Throwable, result: Result) {
-    val e = throwable.cause ?: throwable
+/**
+ * Try to send an error using [Result.error],
+ * by encapsulating calls inside [ignoreIllegalState].
+ */
+fun trySendError(result: Result, name: String?, message: String?, stackTrace: String?) {
     ignoreIllegalState {
-        Log.d(TAG, "piping exception to flutter: $e")
-        result.error(
-            e.javaClass.canonicalName,
-            e.message,
-            serializeStackTrace(e)
-        )
+        Log.d(TAG, "piping exception to flutter ($name)")
+        result.error(name, message, stackTrace)
     }
 }
 
-/*
-Inherit this class to make any kotlin methods with the signature:-
+/**
+ * Serialize the [throwable] and send it using [trySendError].
+ */
+fun trySendThrowable(result: Result, throwable: Throwable) {
+    val e = throwable.cause ?: throwable
+    trySendError(
+        result,
+        e.javaClass.canonicalName,
+        e.message,
+        serializeStackTrace(e)
+    )
+}
 
-    `methodName(io.flutter.plugin.common.MethodCall, io.flutter.plugin.common.MethodChannel.Result)`
-
-be magically available to flutter platform channels, by the power of dynamic dispatch!
-*/
+/**
+ * Inherit this class to make any kotlin methods with the signature:-
+ *
+ *  methodName([MethodCall], [Result])
+ *
+ * be magically available to Flutter's platform channels,
+ * by the power of dynamic dispatch!
+ */
 open class MethodCallDispatcher : MethodCallHandler {
     override fun onMethodCall(call: MethodCall, result: Result) {
         val methodName = call.method
@@ -113,7 +132,7 @@ open class MethodCallDispatcher : MethodCallHandler {
             try {
                 ignoreIllegalState { method.invoke(this, call, result) }
             } catch (e: Throwable) {
-                sendError(e, result)
+                trySendThrowable(result, e)
             }
         }
     }
