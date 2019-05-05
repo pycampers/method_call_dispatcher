@@ -128,7 +128,7 @@ open class MethodCallDispatcher : MethodCallHandler {
         }
 
         DoAsync {
-            Log.d(TAG, "invoking { ${javaClass.simpleName}.$methodName() }...")
+            Log.d(TAG, "invoke { method: ${javaClass.simpleName}.$methodName(), args: ${call.arguments} }")
             try {
                 ignoreIllegalState { method.invoke(this, call, result) }
             } catch (e: Throwable) {

@@ -1,6 +1,6 @@
 name: method_call_dispatcher
 description: A scaffold for writing flutter plugins
-version: 0.2.0
+version: 0.2.1
 author: Dev Aggarwal <devpxy@gmail.com>
 homepage: https://github.com/pycampers/flutter_pdf_viewer
 
