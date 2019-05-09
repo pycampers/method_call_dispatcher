@@ -2,6 +2,7 @@ package com.pycampers.method_call_dispatcher
 
 import android.os.AsyncTask
 import android.util.Log
+import io.flutter.plugin.common.EventChannel.EventSink
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
@@ -10,6 +11,11 @@ import java.io.PrintWriter
 import java.io.StringWriter
 
 const val TAG = "MethodCallDispatcher"
+
+typealias OnError = (errorCode: String, errorMessage: String?, errorDetails: Any?) -> Unit
+typealias OnSuccess = (result: Any?) -> Unit
+typealias AnyFunc = () -> Any?
+typealias unitFunc = () -> Unit
 
 class MethodCallDispatcherPlugin {
     companion object {
@@ -34,36 +40,11 @@ class DoAsync(val fn: () -> Unit) : AsyncTask<Void, Void, Void>() {
  *
  * Workaround for https://github.com/flutter/flutter/issues/29092.
  */
-fun ignoreIllegalState(fn: () -> Unit) {
+fun ignoreIllegalState(fn: unitFunc) {
     try {
         fn()
     } catch (e: IllegalStateException) {
         Log.d(TAG, "ignoring exception: $e. See https://github.com/flutter/flutter/issues/29092 for details.")
-    }
-}
-
-/**
- * Try to send the value returned by [fn] using [result] ([Result.success]),
- * by encapsulating calls inside [ignoreIllegalState].
- *
- * It is advisable to wrap any native code inside [fn],
- * because this will automatically send exceptions using error using [trySendThrowable] if required.
- */
-fun trySend(result: Result, fn: (() -> Any?)? = null) {
-    val value: Any?
-    try {
-        value = fn?.invoke()
-    } catch (e: Throwable) {
-        trySendThrowable(result, e)
-        return
-    }
-
-    ignoreIllegalState {
-        if (value is Unit) {
-            result.success(null)
-        } else {
-            result.success(value)
-        }
     }
 }
 
@@ -81,25 +62,78 @@ fun serializeStackTrace(throwable: Throwable): String {
  * Try to send an error using [Result.error],
  * by encapsulating calls inside [ignoreIllegalState].
  */
-fun trySendError(result: Result, name: String?, message: String?, stackTrace: String?) {
+fun trySendError(onError: OnError, name: String?, message: String?, stackTrace: String?) {
     ignoreIllegalState {
         Log.d(TAG, "piping exception to flutter ($name)")
-        result.error(name, message, stackTrace)
+        onError(name ?: "null", message, stackTrace)
     }
+}
+
+fun trySendError(result: Result, name: String?, message: String?, stackTrace: String?) {
+    trySendError(result::error, name, message, stackTrace)
+}
+
+fun trySendError(events: EventSink, name: String?, message: String?, stackTrace: String?) {
+    trySendError(events::error, name, message, stackTrace)
 }
 
 /**
  * Serialize the [throwable] and send it using [trySendError].
  */
-fun trySendThrowable(result: Result, throwable: Throwable) {
+fun trySendThrowable(onError: OnError, throwable: Throwable) {
     val e = throwable.cause ?: throwable
     trySendError(
-        result,
+        onError,
         e.javaClass.canonicalName,
         e.message,
         serializeStackTrace(e)
     )
 }
+
+fun trySendThrowable(result: Result, throwable: Throwable) = trySendThrowable(result::error, throwable)
+fun trySendThrowable(events: EventSink, throwable: Throwable) = trySendThrowable(events::error, throwable)
+
+/**
+ * Try to send the value returned by [fn] using [result] ([Result.success]),
+ * by encapsulating calls inside [ignoreIllegalState].
+ *
+ * It is advisable to wrap any native code inside [fn],
+ * because this will automatically send exceptions using error using [trySendThrowable] if required.
+ */
+fun trySend(onSuccess: OnSuccess, onError: OnError, fn: AnyFunc? = null) {
+    val value: Any?
+    try {
+        value = fn?.invoke()
+    } catch (e: Throwable) {
+        trySendThrowable(onError, e)
+        return
+    }
+
+    ignoreIllegalState {
+        onSuccess(if (value is Unit) null else value)
+    }
+}
+
+fun trySend(result: Result, fn: AnyFunc? = null) = trySend(result::success, result::error, fn)
+fun trySend(events: EventSink, fn: AnyFunc? = null) = trySend(events::success, events::error, fn)
+
+/**
+ * Run [fn].
+ * Automatically send exceptions using error using [trySendThrowable] if required.
+ *
+ * This differs from [trySend],
+ * in that it won't invoke [Result.success] using the return value of [fn].
+ */
+fun catchErrors(onError: OnError, fn: unitFunc) {
+    try {
+        fn.invoke()
+    } catch (e: Throwable) {
+        trySendThrowable(onError, e)
+    }
+}
+
+fun catchErrors(result: Result, fn: unitFunc) = catchErrors(result::error, fn)
+fun catchErrors(events: EventSink, fn: unitFunc) = catchErrors(events::error, fn)
 
 /**
  * Inherit this class to make any kotlin methods with the signature:-
